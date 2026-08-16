@@ -56,7 +56,7 @@ const char WEBUI_HTML[] PROGMEM = R"rawhtml(
   .card{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:16px;margin-bottom:16px}
   h2{color:#e6edf3;font-size:1em;margin:0 0 12px}
   label{display:block;color:#8b949e;font-size:.85em;margin-top:10px}
-  input[type=number]{width:100%;padding:7px;border-radius:4px;
+  input[type=number],select{width:100%;padding:7px;border-radius:4px;
     border:1px solid #30363d;background:#21262d;color:#e6edf3;margin-top:3px}
   .btn{display:inline-block;padding:9px 16px;border:none;border-radius:4px;cursor:pointer;font-size:.9em;margin-top:6px}
   .btn-gruen{background:#238636;color:#fff}.btn-gruen:hover{background:#2ea043}
@@ -86,12 +86,28 @@ const char WEBUI_HTML[] PROGMEM = R"rawhtml(
 </div>
 
 <div class="card">
-  <h2>Alarm-Lautstärke</h2>
+  <h2>Alarm-Ton</h2>
+  <label>Lautstärke</label>
   <input type="range" name="volume" min="0" max="100" value="%VOLUME%"
          oninput="document.getElementById('vol_val').textContent=this.value">
   <div class="status">Lautstärke: <span id="vol_val">%VOLUME%</span>%</div>
+  <label>Ton</label>
+  <select id="sound_select" name="sound">%SOUND_OPTIONS%</select>
+  <button type="button" class="btn btn-blau" onclick="previewSound()">Anhören</button>
+  <div id="preview_status" class="status"></div>
 </div>
 </form>
+
+<script>
+function previewSound(){
+  const idx = document.getElementById('sound_select').value;
+  const el = document.getElementById('preview_status');
+  el.textContent = 'Spielt ab...';
+  fetch('/sound_preview?idx=' + idx, {method:'POST'}).then(()=>{
+    el.textContent = '';
+  }).catch(()=>{el.textContent = 'Fehler beim Abspielen.';});
+}
+</script>
 
 <div class="card">
   <h2>WLAN</h2>

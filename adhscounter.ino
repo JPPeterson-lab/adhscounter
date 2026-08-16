@@ -7,9 +7,10 @@
 
 #include "webui_html.h"
 #include "alarm_sound.h"
+#include "alarm_sounds_synth.h"
 
 // ---- Versions-Define ----
-#define FIRMWARE_VERSION "0.1.2"
+#define FIRMWARE_VERSION "0.1.3"
 #define OTA_VERSION_URL  "https://raw.githubusercontent.com/JPPeterson-lab/adhscounter/main/docs/version.json"
 #define OTA_BIN_URL      "https://jppeterson-lab.github.io/adhscounter/firmware/firmware.bin"
 #define MDNS_NAME        "adhscounter"
@@ -136,6 +137,7 @@ struct Config {
   int    dauer2 = 15;
   int    dauer3 = 25;
   int    volume = 60;   // 0-100, steuert den Alarmton
+  int    sound  = 0;    // Index in ALARM_SOUNDS
 };
 Config cfg;
 
@@ -147,6 +149,7 @@ void ladeCfg() {
   cfg.dauer2 = prefs.getInt("dauer2", 15);
   cfg.dauer3 = prefs.getInt("dauer3", 25);
   cfg.volume = prefs.getInt("volume", 60);
+  cfg.sound  = prefs.getInt("sound", 0);
   prefs.end();
 }
 
@@ -158,6 +161,7 @@ void speichereCfg() {
   prefs.putInt("dauer2", cfg.dauer2);
   prefs.putInt("dauer3", cfg.dauer3);
   prefs.putInt("volume", cfg.volume);
+  prefs.putInt("sound", cfg.sound);
   prefs.end();
 }
 
@@ -301,31 +305,47 @@ float alarmVolume() {
 
 volatile bool alarmDismissFlag = false;
 
-// Eingebetteter Alarm-Sample (44,1kHz mono PCM), in Bloecken ueber I2S ausgegeben.
-// Prueft alle paar Bloecke direkt per tft.getTouch() (an LVGL vorbei, da hier
-// kein lv_timer_handler() laeuft) auf Touch, damit "Antippen stoppt Alarm"
-// auch waehrend der ~3s-Sample-Wiedergabe sofort reagiert statt erst danach.
-void playAlarmChime() {
-  float vol = alarmVolume();
+// Generischer PCM-Player (44,1kHz mono), in Bloecken ueber I2S ausgegeben.
+// checkTouch: waehrend der Wiedergabe alle paar Bloecke direkt per
+// tft.getTouch() (an LVGL vorbei, da hier kein lv_timer_handler() laeuft) auf
+// Touch pruefen und sofort abbrechen - fuer den echten Alarm noetig, damit
+// "Antippen stoppt Alarm" auch mitten in der Wiedergabe reagiert; bei einer
+// reinen WebUI-Vorschau nicht noetig.
+void playPcm(const int16_t* pcm, uint32_t sampleCount, float volume, bool checkTouch) {
   int16_t chunk[I2S_CHUNK * 2];
   size_t written;
   uint32_t i = 0;
   int chunkCount = 0;
-  while (i < ALARM_SOUND_SAMPLES) {
-    if (++chunkCount >= 20) {
+  while (i < sampleCount) {
+    if (checkTouch && ++chunkCount >= 20) {
       chunkCount = 0;
       uint16_t tx, ty;
       if (tft.getTouch(&tx, &ty)) { alarmDismissFlag = true; return; }
     }
-    uint32_t n = min((uint32_t)I2S_CHUNK, ALARM_SOUND_SAMPLES - i);
+    uint32_t n = min((uint32_t)I2S_CHUNK, sampleCount - i);
     for (uint32_t k = 0; k < n; k++) {
-      int16_t v = (int16_t)(alarm_sound_pcm[i + k] * vol);
+      int16_t v = (int16_t)(pcm[i + k] * volume);
       chunk[k * 2]     = v;
       chunk[k * 2 + 1] = v;
     }
     i2s_write(I2S_PORT, chunk, n * 2 * sizeof(int16_t), &written, portMAX_DELAY);
     i += n;
   }
+}
+
+struct AlarmSound { const char* name; const int16_t* pcm; uint32_t samples; };
+const AlarmSound ALARM_SOUNDS[] = {
+  { "Beep-Beep",     alarm_sound_pcm,  ALARM_SOUND_SAMPLES },
+  { "Sanfte Glocke", alarm_glocke_pcm, ALARM_GLOCKE_SAMPLES },
+  { "Doppelschlag",  alarm_doppel_pcm, ALARM_DOPPEL_SAMPLES },
+  { "Aufsteigend",   alarm_auf_pcm,    ALARM_AUF_SAMPLES },
+  { "Warmer Ton",    alarm_warm_pcm,   ALARM_WARM_SAMPLES },
+};
+#define ALARM_SOUND_COUNT (int)(sizeof(ALARM_SOUNDS) / sizeof(ALARM_SOUNDS[0]))
+
+void playAlarmChime() {
+  int idx = constrain(cfg.sound, 0, ALARM_SOUND_COUNT - 1);
+  playPcm(ALARM_SOUNDS[idx].pcm, ALARM_SOUNDS[idx].samples, alarmVolume(), true);
 }
 
 // ============================================================
@@ -412,7 +432,7 @@ void enterAlarm() {
   uint32_t letzterBlink = millis();
 
   while (!alarmDismissFlag) {
-    if (millis() - letzterBlink > 600) {
+    if (millis() - letzterBlink > 300) {
       rot = !rot;
       lv_obj_set_style_bg_color(objects.alarm,
         rot ? lv_color_hex(0xE63946) : lv_color_hex(0x7A1620), LV_PART_MAIN);
@@ -559,6 +579,15 @@ String baueStatus() {
   return "Bereit";
 }
 
+String baueSoundOptions(int selected) {
+  String out;
+  for (int i = 0; i < ALARM_SOUND_COUNT; i++) {
+    out += "<option value='" + String(i) + "'" + (i == selected ? " selected" : "") + ">" +
+           ALARM_SOUNDS[i].name + "</option>";
+  }
+  return out;
+}
+
 void handleWebRoot() {
   String html = FPSTR(WEBUI_HTML);
   html.replace("%VERSION%", FIRMWARE_VERSION);
@@ -568,6 +597,7 @@ void handleWebRoot() {
   html.replace("%DAUER2%", String(cfg.dauer2));
   html.replace("%DAUER3%", String(cfg.dauer3));
   html.replace("%VOLUME%", String(cfg.volume));
+  html.replace("%SOUND_OPTIONS%", baueSoundOptions(cfg.sound));
   html.replace("%SSID%", cfg.ssid);
   server.send(200, "text/html", html);
 }
@@ -577,11 +607,20 @@ void handleWebSave() {
   if (server.hasArg("dauer2")) cfg.dauer2 = constrain(server.arg("dauer2").toInt(), 1, 180);
   if (server.hasArg("dauer3")) cfg.dauer3 = constrain(server.arg("dauer3").toInt(), 1, 180);
   if (server.hasArg("volume")) cfg.volume = constrain(server.arg("volume").toInt(), 0, 100);
+  if (server.hasArg("sound"))  cfg.sound  = constrain(server.arg("sound").toInt(), 0, ALARM_SOUND_COUNT - 1);
   speichereCfg();
   updateHomeButtonLabels();
   updateSettingsValueLabels();
   server.sendHeader("Location", "/");
   server.send(302);
+}
+
+void handleWebSoundPreview() {
+  int idx = cfg.sound;
+  if (server.hasArg("idx")) idx = server.arg("idx").toInt();
+  idx = constrain(idx, 0, ALARM_SOUND_COUNT - 1);
+  playPcm(ALARM_SOUNDS[idx].pcm, ALARM_SOUNDS[idx].samples, alarmVolume(), false);
+  server.send(200, "text/plain", "ok");
 }
 
 void handleWebWlanAendern() {
@@ -673,6 +712,7 @@ void handleWebOtaDoUpdate() {
 void starteWebUI() {
   server.on("/",               HTTP_GET,  handleWebRoot);
   server.on("/speichern",      HTTP_POST, handleWebSave);
+  server.on("/sound_preview",  HTTP_POST, handleWebSoundPreview);
   server.on("/wlan",           HTTP_GET,  handleWebWlanAendern);
   server.on("/wlan_speichern", HTTP_POST, handleWebWlanSave);
   server.on("/ota_check",      HTTP_GET,  handleWebOtaCheck);
