@@ -64,6 +64,7 @@ const char WEBUI_HTML[] PROGMEM = R"rawhtml(
   .status{font-size:.85em;color:#8b949e;margin-top:6px}
   .row{display:flex;gap:10px;margin-top:8px}
   .col{flex:1}
+  input[type=range]{width:100%;margin-top:6px}
 </style></head><body>
 <h1>adhscounter</h1>
 <div class="ver">Firmware: %VERSION% | IP: %IP% | adhscounter.local</div>
@@ -82,6 +83,13 @@ const char WEBUI_HTML[] PROGMEM = R"rawhtml(
     <div class="col"><label>Timer 3</label><input type="number" name="dauer3" min="1" max="180" value="%DAUER3%"></div>
   </div>
   <button type="submit" class="btn btn-gruen">Speichern</button>
+</div>
+
+<div class="card">
+  <h2>Alarm-Lautstärke</h2>
+  <input type="range" name="volume" min="0" max="100" value="%VOLUME%"
+         oninput="document.getElementById('vol_val').textContent=this.value">
+  <div class="status">Lautstärke: <span id="vol_val">%VOLUME%</span>%</div>
 </div>
 </form>
 

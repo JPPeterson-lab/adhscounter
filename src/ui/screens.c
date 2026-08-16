@@ -302,29 +302,6 @@ void create_screen_settings() {
             lv_obj_set_style_text_color(obj, lv_color_hex(theme_colors[active_theme_index][THEME_COLOR_TEXT]), LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_label_set_text(obj, "192.168.177.102");
         }
-        {
-            // slidervol
-            lv_obj_t *obj = lv_slider_create(parent_obj);
-            objects.slidervol = obj;
-            lv_obj_set_pos(obj, 276, 143);
-            lv_obj_set_size(obj, 200, 20);
-            lv_slider_set_range(obj, 0, 100);
-            lv_slider_set_value(obj, 50, LV_ANIM_OFF);
-            lv_obj_set_style_transform_angle(obj, 2700, LV_PART_MAIN | LV_STATE_DEFAULT);
-            lv_obj_set_style_transform_pivot_x(obj, 100, LV_PART_MAIN | LV_STATE_DEFAULT);
-            lv_obj_set_style_transform_pivot_y(obj, 10, LV_PART_MAIN | LV_STATE_DEFAULT);
-        }
-        {
-            // labelvol
-            lv_obj_t *obj = lv_label_create(parent_obj);
-            objects.labelvol = obj;
-            lv_obj_set_pos(obj, 358, 10);
-            lv_obj_set_size(obj, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-            lv_obj_set_style_text_opa(obj, (lv_opa_t)(theme_colors[active_theme_index][THEME_COLOR_TEXT] >> 24), LV_PART_MAIN | LV_STATE_DEFAULT);
-            lv_obj_set_style_text_font(obj, &font_montserrat_22, LV_PART_MAIN | LV_STATE_DEFAULT);
-            lv_obj_set_style_text_color(obj, lv_color_hex(theme_colors[active_theme_index][THEME_COLOR_TEXT]), LV_PART_MAIN | LV_STATE_DEFAULT);
-            lv_label_set_text(obj, "Vol");
-        }
     }
 
     tick_screen_settings();
@@ -554,8 +531,6 @@ void delete_screen_settings() {
     objects.buttonback_label = 0;
     objects.labelversion = 0;
     objects.labelip = 0;
-    objects.slidervol = 0;
-    objects.labelvol = 0;
 }
 
 void delete_screen_home() {

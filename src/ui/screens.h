@@ -38,8 +38,6 @@ typedef struct _objects_t {
     lv_obj_t *buttonback;
     lv_obj_t *labelversion;
     lv_obj_t *labelip;
-    lv_obj_t *slidervol;
-    lv_obj_t *labelvol;
     lv_obj_t *labelalarm;
     lv_obj_t *buttonstart1_label;
     lv_obj_t *buttonstart2_label;

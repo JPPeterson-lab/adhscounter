@@ -9,7 +9,7 @@
 #include "alarm_sound.h"
 
 // ---- Versions-Define ----
-#define FIRMWARE_VERSION "0.1.1-beta"
+#define FIRMWARE_VERSION "0.1.2"
 #define OTA_VERSION_URL  "https://raw.githubusercontent.com/JPPeterson-lab/adhscounter/main/docs/version.json"
 #define OTA_BIN_URL      "https://jppeterson-lab.github.io/adhscounter/firmware/firmware.bin"
 #define MDNS_NAME        "adhscounter"
@@ -364,9 +364,6 @@ void updateSettingsValueLabels() {
 
   if (objects.labelversion) lv_label_set_text(objects.labelversion, FIRMWARE_VERSION);
   if (objects.labelip) lv_label_set_text(objects.labelip, WiFi.localIP().toString().c_str());
-
-  if (objects.slidervol) lv_slider_set_value(objects.slidervol, cfg.volume, LV_ANIM_OFF);
-  if (objects.labelvol) lv_label_set_text_fmt(objects.labelvol, "Vol %d%%", cfg.volume);
 }
 
 void setCountdownLabel(long remainingSec) {
@@ -457,11 +454,6 @@ void cbDauer2Plus(lv_event_t* e)  { cfg.dauer2 = min(180, cfg.dauer2 + 5); updat
 void cbDauer3Minus(lv_event_t* e) { cfg.dauer3 = max(1, cfg.dauer3 - 5); updateSettingsValueLabels(); }
 void cbDauer3Plus(lv_event_t* e)  { cfg.dauer3 = min(180, cfg.dauer3 + 5); updateSettingsValueLabels(); }
 
-void cbVolumeChanged(lv_event_t* e) {
-  cfg.volume = lv_slider_get_value(objects.slidervol);
-  if (objects.labelvol) lv_label_set_text_fmt(objects.labelvol, "Vol %d%%", cfg.volume);
-}
-
 void cbSave(lv_event_t* e) {
   speichereCfg();
   updateHomeButtonLabels();
@@ -493,7 +485,6 @@ void registriereCallbacks() {
   REG_CB(objects.buttondauer2plus,  cbDauer2Plus,  LV_EVENT_CLICKED);
   REG_CB(objects.buttondauer3minus, cbDauer3Minus, LV_EVENT_CLICKED);
   REG_CB(objects.buttondauer3plus,  cbDauer3Plus,  LV_EVENT_CLICKED);
-  REG_CB(objects.slidervol,        cbVolumeChanged, LV_EVENT_VALUE_CHANGED);
   REG_CB(objects.buttonsave,       cbSave,         LV_EVENT_CLICKED);
   REG_CB(objects.buttonback,       cbBack,         LV_EVENT_CLICKED);
   REG_CB(objects.alarm,            cbAlarmTap,     LV_EVENT_CLICKED);
@@ -576,6 +567,7 @@ void handleWebRoot() {
   html.replace("%DAUER1%", String(cfg.dauer1));
   html.replace("%DAUER2%", String(cfg.dauer2));
   html.replace("%DAUER3%", String(cfg.dauer3));
+  html.replace("%VOLUME%", String(cfg.volume));
   html.replace("%SSID%", cfg.ssid);
   server.send(200, "text/html", html);
 }
@@ -584,6 +576,7 @@ void handleWebSave() {
   if (server.hasArg("dauer1")) cfg.dauer1 = constrain(server.arg("dauer1").toInt(), 1, 180);
   if (server.hasArg("dauer2")) cfg.dauer2 = constrain(server.arg("dauer2").toInt(), 1, 180);
   if (server.hasArg("dauer3")) cfg.dauer3 = constrain(server.arg("dauer3").toInt(), 1, 180);
+  if (server.hasArg("volume")) cfg.volume = constrain(server.arg("volume").toInt(), 0, 100);
   speichereCfg();
   updateHomeButtonLabels();
   updateSettingsValueLabels();
@@ -618,25 +611,32 @@ void handleWebWlanSave() {
 void handleWebOtaCheck() {
   WiFiClientSecure sc; sc.setInsecure();
   HTTPClient http;
+  http.setConnectTimeout(8000);
+  http.setTimeout(8000);
   http.begin(sc, OTA_VERSION_URL);
   String latest = FIRMWARE_VERSION;
   bool updateAvailable = false;
-  if (http.GET() == 200) {
+  int code = http.GET();
+  Serial.printf("[OTA] Check GET %s -> HTTP %d\n", OTA_VERSION_URL, code);
+  if (code == 200) {
     String body = http.getString();
+    Serial.println("[OTA] Antwort: " + body);
     int idx = body.indexOf("\"version\"");
     if (idx >= 0) {
-      int q1 = body.indexOf('"', idx + 9);
-      int q2 = body.indexOf('"', q1 + 1);
+      int q1 = body.indexOf('"', idx + 9);  // oeffnendes Anfuehrungszeichen des Werts
+      int q2 = body.indexOf('"', q1 + 1);   // schliessendes Anfuehrungszeichen des Werts
       if (q1 >= 0 && q2 > q1) {
-        int q3 = body.indexOf('"', q2 + 1);
-        latest = body.substring(q2 + 1, q3);
+        latest = body.substring(q1 + 1, q2);
         updateAvailable = (latest != FIRMWARE_VERSION);
       }
     }
+  } else {
+    Serial.println("[OTA] Fehler: " + http.errorToString(code));
   }
   http.end();
   String json = "{\"current\":\"" + String(FIRMWARE_VERSION) + "\",\"latest\":\"" + latest +
                 "\",\"update_available\":" + (updateAvailable ? "true" : "false") + "}";
+  Serial.println("[OTA] Sende an Browser: " + json);
   server.send(200, "application/json", json);
 }
 

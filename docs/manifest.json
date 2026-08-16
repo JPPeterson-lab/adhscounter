@@ -1,6 +1,6 @@
 {
   "name": "adhscounter",
-  "version": "0.1.1-beta",
+  "version": "0.1.2",
   "home_assistant_domain": "esphome",
   "funding_url": "https://github.com/JPPeterson-lab/adhscounter",
   "new_install_prompt_erase": true,

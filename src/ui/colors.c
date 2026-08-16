@@ -43,8 +43,6 @@ void change_color_theme(uint32_t theme_index) {
     lv_obj_set_style_text_opa(objects.labelversion, (lv_opa_t)(theme_colors[theme_index][THEME_COLOR_TEXT] >> 24), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_color(objects.labelip, lv_color_hex(theme_colors[theme_index][THEME_COLOR_TEXT]), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_opa(objects.labelip, (lv_opa_t)(theme_colors[theme_index][THEME_COLOR_TEXT] >> 24), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_color(objects.labelvol, lv_color_hex(theme_colors[theme_index][THEME_COLOR_TEXT]), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_opa(objects.labelvol, (lv_opa_t)(theme_colors[theme_index][THEME_COLOR_TEXT] >> 24), LV_PART_MAIN | LV_STATE_DEFAULT);
 }
 
 // Common colors
