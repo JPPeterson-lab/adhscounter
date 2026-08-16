@@ -6,9 +6,10 @@
 // ============================================================
 
 #include "webui_html.h"
+#include "alarm_sound.h"
 
 // ---- Versions-Define ----
-#define FIRMWARE_VERSION "0.1.0"
+#define FIRMWARE_VERSION "0.1.1-beta"
 #define OTA_VERSION_URL  "https://raw.githubusercontent.com/JPPeterson-lab/adhscounter/main/docs/version.json"
 #define OTA_BIN_URL      "https://jppeterson-lab.github.io/adhscounter/firmware/firmware.bin"
 #define MDNS_NAME        "adhscounter"
@@ -134,6 +135,7 @@ struct Config {
   int    dauer1 = 5;
   int    dauer2 = 15;
   int    dauer3 = 25;
+  int    volume = 60;   // 0-100, steuert den Alarmton
 };
 Config cfg;
 
@@ -144,6 +146,7 @@ void ladeCfg() {
   cfg.dauer1 = prefs.getInt("dauer1", 5);
   cfg.dauer2 = prefs.getInt("dauer2", 15);
   cfg.dauer3 = prefs.getInt("dauer3", 25);
+  cfg.volume = prefs.getInt("volume", 60);
   prefs.end();
 }
 
@@ -154,6 +157,7 @@ void speichereCfg() {
   prefs.putInt("dauer1", cfg.dauer1);
   prefs.putInt("dauer2", cfg.dauer2);
   prefs.putInt("dauer3", cfg.dauer3);
+  prefs.putInt("volume", cfg.volume);
   prefs.end();
 }
 
@@ -286,44 +290,42 @@ void i2sInit() {
   i2s_set_pin(I2S_PORT, &pins);
 }
 
-// Glockenspiel-artiger Ton: Grundton + 2 leise Obertoene, exponentiell
-// ausklingend statt hart ein-/ausgeschaltet. In Bloecken (I2S_CHUNK Samples)
-// statt einzeln geschrieben - einzelne i2s_write()-Aufrufe pro Sample sind zu
-// langsam fuer 44.1kHz und fuehren zu DMA-Aussetzern (klingt wie Rauschen).
-#define ALARM_TONE_VOLUME 0.22f
+// I2S-Schreibvorgaenge in Bloecken statt einzeln - einzelne i2s_write()-Aufrufe
+// pro Sample sind zu langsam fuer 44.1kHz und fuehren zu DMA-Aussetzern (Rauschen).
 #define I2S_CHUNK 256
 
-void playBellTone(float freqHz, int durationMs, float volume) {
-  const int totalSamples = I2S_SAMPLE_RATE * durationMs / 1000;
-  static int16_t chunk[I2S_CHUNK * 2]; // stereo interleaved
-  size_t written;
-  const float decayRate = 4.5f / totalSamples; // exponentieller Ausklang ueber die Dauer
+// cfg.volume (0-100, per Slider auf dem Settings-Screen) -> tatsaechlicher Gain (0.0-0.9)
+float alarmVolume() {
+  return (cfg.volume / 100.0f) * 0.9f;
+}
 
-  int i = 0;
-  while (i < totalSamples) {
-    int n = min((int)I2S_CHUNK, totalSamples - i);
-    for (int k = 0; k < n; k++) {
-      int idx = i + k;
-      float t = (float)idx / I2S_SAMPLE_RATE;
-      float env = expf(-decayRate * idx);
-      // Grundton + leise Obertoene fuer waermeren, glockenartigen Klang
-      float s = sinf(2.0f * PI * freqHz * t)
-              + 0.35f * sinf(2.0f * PI * freqHz * 2.0f * t)
-              + 0.15f * sinf(2.0f * PI * freqHz * 3.0f * t);
-      s *= 0.6f; // Summe normalisieren
-      int16_t v = (int16_t)(s * 32000.0f * volume * env);
+volatile bool alarmDismissFlag = false;
+
+// Eingebetteter Alarm-Sample (44,1kHz mono PCM), in Bloecken ueber I2S ausgegeben.
+// Prueft alle paar Bloecke direkt per tft.getTouch() (an LVGL vorbei, da hier
+// kein lv_timer_handler() laeuft) auf Touch, damit "Antippen stoppt Alarm"
+// auch waehrend der ~3s-Sample-Wiedergabe sofort reagiert statt erst danach.
+void playAlarmChime() {
+  float vol = alarmVolume();
+  int16_t chunk[I2S_CHUNK * 2];
+  size_t written;
+  uint32_t i = 0;
+  int chunkCount = 0;
+  while (i < ALARM_SOUND_SAMPLES) {
+    if (++chunkCount >= 20) {
+      chunkCount = 0;
+      uint16_t tx, ty;
+      if (tft.getTouch(&tx, &ty)) { alarmDismissFlag = true; return; }
+    }
+    uint32_t n = min((uint32_t)I2S_CHUNK, ALARM_SOUND_SAMPLES - i);
+    for (uint32_t k = 0; k < n; k++) {
+      int16_t v = (int16_t)(alarm_sound_pcm[i + k] * vol);
       chunk[k * 2]     = v;
       chunk[k * 2 + 1] = v;
     }
     i2s_write(I2S_PORT, chunk, n * 2 * sizeof(int16_t), &written, portMAX_DELAY);
     i += n;
   }
-}
-
-// Freundlicher, leiser Zweiklang (E5 -> C5), klingt jeweils natuerlich aus.
-void playAlarmChime() {
-  playBellTone(659.25f, 500, ALARM_TONE_VOLUME);  // E5
-  playBellTone(523.25f, 700, ALARM_TONE_VOLUME);  // C5
 }
 
 // ============================================================
@@ -334,7 +336,6 @@ CounterState state = STATE_IDLE;
 int      activeTimerIdx = -1;
 uint32_t countdownEndMillis = 0;
 int      letzteAngezeigteSekunde = -1;
-volatile bool alarmDismissFlag = false;
 
 int getDauerMinuten(int idx) {
   if (idx == 0) return cfg.dauer1;
@@ -363,6 +364,9 @@ void updateSettingsValueLabels() {
 
   if (objects.labelversion) lv_label_set_text(objects.labelversion, FIRMWARE_VERSION);
   if (objects.labelip) lv_label_set_text(objects.labelip, WiFi.localIP().toString().c_str());
+
+  if (objects.slidervol) lv_slider_set_value(objects.slidervol, cfg.volume, LV_ANIM_OFF);
+  if (objects.labelvol) lv_label_set_text_fmt(objects.labelvol, "Vol %d%%", cfg.volume);
 }
 
 void setCountdownLabel(long remainingSec) {
@@ -453,6 +457,11 @@ void cbDauer2Plus(lv_event_t* e)  { cfg.dauer2 = min(180, cfg.dauer2 + 5); updat
 void cbDauer3Minus(lv_event_t* e) { cfg.dauer3 = max(1, cfg.dauer3 - 5); updateSettingsValueLabels(); }
 void cbDauer3Plus(lv_event_t* e)  { cfg.dauer3 = min(180, cfg.dauer3 + 5); updateSettingsValueLabels(); }
 
+void cbVolumeChanged(lv_event_t* e) {
+  cfg.volume = lv_slider_get_value(objects.slidervol);
+  if (objects.labelvol) lv_label_set_text_fmt(objects.labelvol, "Vol %d%%", cfg.volume);
+}
+
 void cbSave(lv_event_t* e) {
   speichereCfg();
   updateHomeButtonLabels();
@@ -484,6 +493,7 @@ void registriereCallbacks() {
   REG_CB(objects.buttondauer2plus,  cbDauer2Plus,  LV_EVENT_CLICKED);
   REG_CB(objects.buttondauer3minus, cbDauer3Minus, LV_EVENT_CLICKED);
   REG_CB(objects.buttondauer3plus,  cbDauer3Plus,  LV_EVENT_CLICKED);
+  REG_CB(objects.slidervol,        cbVolumeChanged, LV_EVENT_VALUE_CHANGED);
   REG_CB(objects.buttonsave,       cbSave,         LV_EVENT_CLICKED);
   REG_CB(objects.buttonback,       cbBack,         LV_EVENT_CLICKED);
   REG_CB(objects.alarm,            cbAlarmTap,     LV_EVENT_CLICKED);
@@ -1236,12 +1246,7 @@ void setup() {
 void loop() {
   if (portal_modus) {
     dnsServer.processNextRequest();
-    server.handleClient();
-    lv_timer_handler();
-    delay(5);
-    return;
   }
-
   server.handleClient();
   lv_timer_handler();
   delay(5);
