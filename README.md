@@ -94,16 +94,6 @@ Vollständige Pinbelegung siehe [WIRING.md](WIRING.md).
 
 ---
 
-## 🔄 Version bumpen (Entwicklung)
-
-```bash
-bash bump_version.sh <alte-version> <neue-version>
-```
-
-Danach in der Arduino IDE `firmware.bin` exportieren, nach `docs/firmware/` legen und committen/pushen.
-
----
-
 ## 📄 Lizenz
 
 Dieses Projekt steht unter der [CC BY-NC 4.0 Lizenz](LICENSE). Drittanbieter-Komponenten (LVGL, LovyanGFX, Schriften, Icons) siehe [CREDITS.md](CREDITS.md).
